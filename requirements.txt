@@ -1,0 +1,5 @@
+django==2.1.4
+djangorestframework==3.9.0
+django-cors-headers==2.0.0
+googlemaps==3.0.2
+psycopg2==2.7.3

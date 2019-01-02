@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <title>Place Autocomplete and Directions</title>
+      <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+      <meta charset="utf-8">
+      <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+      <style>
+         /* Always set the map height explicitly to define the size of the div
+         * element that contains the map. */
+         #map {
+         height: 100%;
+         width: 100%;
+         float: left;
+         }
+         /* Optional: Makes the sample page fill the window. */
+         html, body {
+         height: 100%;
+         margin: 0;
+         padding: 0;
+         }
+         .controls {
+         margin-top: 10px;
+         border: 1px solid transparent;
+         border-radius: 2px 0 0 2px;
+         box-sizing: border-box;
+         -moz-box-sizing: border-box;
+         height: 32px;
+         outline: none;
+         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+         }
+         #origin-input,
+         #destination-input {
+         background-color: #fff;
+         font-family: Roboto;
+         font-size: 15px;
+         font-weight: 300;
+         margin-left: 12px;
+         padding: 0 11px 0 13px;
+         text-overflow: ellipsis;
+         width: 200px;
+         }
+         #origin-input:focus,
+         #destination-input:focus {
+         border-color: #4d90fe;
+         }
+         #mode-selector {
+         color: #fff;
+         background-color: #4d90fe;
+         margin-left: 12px;
+         padding: 5px 11px 0px 11px;
+         }
+         #mode-selector label {
+         font-family: Roboto;
+         font-size: 13px;
+         font-weight: 300;
+         }
+      </style>
+   </head>
+   <body>
+      <input id="origin-input" class="controls" type="text"
+         placeholder="Enter an origin location">
+      <input id="destination-input" class="controls" type="text"
+         placeholder="Enter a destination location">
+      <div id="mode-selector" class="controls">
+         <input type="radio" name="type" id="changemode-walking" checked="checked">
+         <label for="changemode-walking">Walking</label>
+         <input type="radio" name="type" id="changemode-transit">
+         <label for="changemode-transit">Transit</label>
+         <input type="radio" name="type" id="changemode-driving">
+         <label for="changemode-driving">Driving</label>
+      </div>
+      <div id="map"></div>
+      <div id="weatherData" style="padding-left: 66%;">
+      </div>
+      <script>
+         // This example requires the Places library. Include the libraries=places
+         // parameter when you first load the API. For example:
+         // <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places">
+
+         function initMap() {
+           var map = new google.maps.Map(document.getElementById('map'), {
+             mapTypeControl: false,
+             center: {lat: -33.8688, lng: 151.2195},
+             zoom: 13
+           });
+
+           new AutocompleteDirectionsHandler(map);
+         }
+
+          /**
+           * @constructor
+          */
+         function AutocompleteDirectionsHandler(map) {
+           this.map = map;
+           this.originPlaceId = null;
+           this.destinationPlaceId = null;
+           this.travelMode = 'WALKING';
+           var originInput = document.getElementById('origin-input');
+           var destinationInput = document.getElementById('destination-input');
+           var modeSelector = document.getElementById('mode-selector');
+           this.directionsService = new google.maps.DirectionsService;
+           this.directionsDisplay = new google.maps.DirectionsRenderer;
+           this.directionsDisplay.setMap(map);
+
+           var originAutocomplete = new google.maps.places.Autocomplete(
+               originInput, {placeIdOnly: true});
+           var destinationAutocomplete = new google.maps.places.Autocomplete(
+               destinationInput, {placeIdOnly: true});
+
+          // Setting up listeners to get updated routes based on mode of transport
+           this.setupClickListener('changemode-walking', 'WALKING');
+           this.setupClickListener('changemode-transit', 'TRANSIT');
+           this.setupClickListener('changemode-driving', 'DRIVING');
+
+           this.setupPlaceChangedListener(originAutocomplete, 'ORIG');
+           this.setupPlaceChangedListener(destinationAutocomplete, 'DEST');
+
+           this.map.controls[google.maps.ControlPosition.TOP_LEFT].push(originInput);
+           this.map.controls[google.maps.ControlPosition.TOP_LEFT].push(destinationInput);
+           this.map.controls[google.maps.ControlPosition.TOP_LEFT].push(modeSelector);
+         }
+
+         // Sets a listener on a radio button to change the filter type on Places
+         // Autocomplete.
+         AutocompleteDirectionsHandler.prototype.setupClickListener = function(id, mode) {
+           var radioButton = document.getElementById(id);
+           var me = this;
+           radioButton.addEventListener('click', function() {
+             me.travelMode = mode;
+             me.route();
+           });
+         };
+
+         AutocompleteDirectionsHandler.prototype.setupPlaceChangedListener = function(autocomplete, mode) {
+           var me = this;
+           autocomplete.bindTo('bounds', this.map);
+           autocomplete.addListener('place_changed', function() {
+             var place = autocomplete.getPlace();
+             if (!place.place_id) {
+               window.alert("Please select an option from the dropdown list.");
+               return;
+             }
+             if (mode === 'ORIG') {
+               me.originPlaceId = place.place_id;
+             } else {
+               me.destinationPlaceId = place.place_id;
+             }
+             me.route();
+           });
+
+         };
+         var markers = [];
+         AutocompleteDirectionsHandler.prototype.route = function() {
+           if (!this.originPlaceId || !this.destinationPlaceId) {
+             return;
+           }
+           var me = this;
+
+           var travelMode = "driving";
+           if (document.getElementById('changemode-walking').checked == true)
+               travelMode = "walking";
+           else if (document.getElementById('changemode-transit').checked == true)
+               travelMode = "transit";
+            var res;
+
+
+
+           // Get response from the server
+           getData('http://localhost:8000/weather/get-directions/',{"origin": document.getElementById('origin-input').value,
+                     "destination": document.getElementById('destination-input').value,
+                     "travelMode": travelMode}, function(response) {
+         var res = JSON.parse(response);
+         typecastRoutes(res.routes);
+         res.request = request;
+           me.directionsDisplay.setDirections(res);
+
+           //Remove the old markers if present
+           clearMarkers();
+
+           for (i = 0; i < res.weather_data.length; i++) {
+           // Display all markers with weather data on the map
+             var myLatLng = {lat: res.weather_data[i].lat, lng: res.weather_data[i].lng};
+             var mapOptions = {
+               zoom: 4,
+               center: myLatLng
+             }
+             //var map = new google.maps.Map(document.getElementById("map"), mapOptions);
+             markers[i] = new google.maps.Marker({
+                 position: myLatLng,
+                 title: "City: "+res.weather_data[i].city+", Temperature: "+res.weather_data[i].temp+", "+res.weather_data[i].icon,
+             });
+             markers[i].setMap(me.map);
+
+           }
+         });
+
+         };
+
+
+         function setMapOnAll(map) {
+           for (var i = 0; i < markers.length; i++) {
+             markers[i].setMap(map);
+           }
+         }
+
+         // Removes the markers from the map, but keeps them in the array.
+         function clearMarkers() {
+           setMapOnAll(null);
+         }
+         function getData(yt_url, data, callback) {
+         $.ajax({
+           type: "GET",
+           url: yt_url,
+           data: data,
+
+           success: callback,
+           error: function(request, status, error) {
+               alert(status);
+           }
+         });
+         }
+
+
+         function typecastRoutes(routes){
+             routes.forEach(function(route){
+                 route.bounds = asBounds(route.bounds);
+                 // I don't think `overview_path` is used but it exists on the
+                 // response of DirectionsService.route()
+                 route.overview_path = asPath(route.overview_polyline);
+
+                 route.legs.forEach(function(leg){
+                     leg.start_location = asLatLng(leg.start_location);
+                     leg.end_location   = asLatLng(leg.end_location);
+
+                     leg.steps.forEach(function(step){
+                         step.start_location = asLatLng(step.start_location);
+                         step.end_location   = asLatLng(step.end_location);
+                         step.path = asPath(step.polyline);
+                     });
+
+                 });
+             });
+         }
+
+         function asBounds(boundsObject){
+             return new google.maps.LatLngBounds(asLatLng(boundsObject.southwest),
+                                             asLatLng(boundsObject.northeast));
+         }
+
+         function asLatLng(latLngObject){
+             return new google.maps.LatLng(latLngObject.lat, latLngObject.lng);
+         }
+
+         function asPath(encodedPolyObject){
+             return google.maps.geometry.encoding.decodePath( encodedPolyObject.points );
+         }
+
+
+         var request = {
+         travelMode: "DRIVING"
+         };
+
+      </script>
+      <script src="https://maps.googleapis.com/maps/api/js?key=xxxxxx&libraries=places&callback=initMap"
+         async defer></script>
+   </body>
+</html>
